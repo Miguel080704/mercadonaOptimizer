@@ -1,14 +1,37 @@
 import pandas as pd
 import requests
 import urllib.parse
+import re
 from difflib import SequenceMatcher
 from sqlalchemy import create_engine, text
 
 # --- CONFIGURACIÓN ---
 DATABASE_URL = "postgresql://postgres:admin@localhost:5432/mercadona_db"
-CSV_PATH = "etl/productos_semilla.csv"
+CSV_PATH = "ETL/products_macro.csv" 
+BATCH_SIZE = 10
 
 # --- LÓGICA DE TRADUCCIÓN API -> TU SISTEMA ---
+def clean_price(price_str):
+    try:
+        if isinstance(price_str, (int, float)): return float(price_str)
+        clean = str(price_str).replace('€', '').replace(',', '.').strip()
+        return float(clean)
+    except:
+        return 0.0
+
+
+def extract_weight(subtitle):
+    try:
+        match = re.search(r'(\d+(?:[\.,]\d+)?)\s*(g|kg|ml|l)', str(subtitle).lower())
+        if match:
+            num = float(match.group(1).replace(',', '.'))
+            unidad = match.group(2)
+            if unidad in ['kg', 'l']: return num * 1000
+            return num
+    except:
+        pass
+    return 500.0
+
 def detect_category_and_tags(api_data):
     """
     Traduce las categorías raras de la API (PNNS Groups) a tus categorías simples.
@@ -68,7 +91,9 @@ def detect_category_and_tags(api_data):
 
 def get_nutrients_from_product_data(product):
     nutrients = product.get('nutriments', {})
-    
+
+    if 'proteins_100g' not in nutrients or 'energy-kcal_100g' not in nutrients:
+        return None
     # DETECCIÓN AUTOMÁTICA AQUÍ
     cat_detectada, tags_detectados = detect_category_and_tags(product)
     
@@ -101,7 +126,32 @@ def search_product_by_barcode(barcode):
         pass
     return None
 
-def search_product_waterfall(name):
+def search_product_waterfall(name , cat_original):INSERT INTO productos (
+    nombre,
+    precio,
+    peso_gramos,
+    codigo_barras,
+    categoria,
+    tags,
+    proteinas_100g,
+    carbohidratos_100g,
+    grasas_100g,
+    calorias_100g,
+    imagen_url
+  )
+VALUES (
+    'nombre:text',
+    'precio:double precision',
+    'peso_gramos:double precision',
+    'codigo_barras:text',
+    'categoria:text',
+    'tags:text',
+    'proteinas_100g:double precision',
+    'carbohidratos_100g:double precision',
+    'grasas_100g:double precision',
+    'calorias_100g:double precision',
+    'imagen_url:text'
+  );
     clean_name = name.replace("Hacendado", "").replace("Mercadona", "").strip()
     intentos = [f"{clean_name} Mercadona", f"{clean_name} Hacendado", clean_name]
     
@@ -136,64 +186,68 @@ def search_product_waterfall(name):
     return None
 
 def main():
-    print("🚀 Iniciando ETL 7.0 (Auto-Categorización con IA de OpenFoodFacts)...")
+    print("🚀 ETL ORIGINAL RESTAURADO (Adaptado al nuevo CSV)...")
+    
     try:
         df = pd.read_csv(CSV_PATH)
     except FileNotFoundError:
         print("❌ Error: No encuentro el CSV.")
         return
 
+    engine = create_engine(DATABASE_URL)
+    
+    # --- RESET DE TABLA (Para evitar errores de columnas viejas) ---
+    with engine.connect() as conn:
+        conn.execute(text("DROP TABLE IF EXISTS productos CASCADE"))
+        conn.commit()
+    print("🧹 Tabla reiniciada.")
+    # ---------------------------------------------------------------
+
     datos_enriquecidos = []
+    total = len(df)
 
     for index, row in df.iterrows():
-        nombre = row['nombre']
-        barcode = str(row['codigo_barras'])
-        peso = row['peso_gramos']
+        nombre = row['name']
+        print(f"\n[{index+1}/{total}] {nombre[:30]}...", end="")
         
-        print(f"\n📦 {nombre}...", end="")
-        
-        # BUSCAR INFORMACIÓN
-        info = search_product_by_barcode(barcode)
-        if not info:
-            print(" -> Plan B...", end="")
-            info = search_product_waterfall(nombre)
+        # BUSCAR INFORMACIÓN (Con tu lógica original)
+        info = search_product_waterfall(nombre, row['Category'])
 
         if info:
-            # MAGIA: Usamos la categoría detectada por la API en vez de la del CSV
-            # (Si el CSV tiene una manual, la ignoramos o la usamos como fallback, aquí priorizo la API)
-            categoria_final = info['categoria_detectada']
-            tags_finales = info['tags_detectados']
-            
-            print(f"\n    🏷️ Detectado: [{categoria_final}] Tags: ({tags_finales})", end="")
-
+            # MAPEO DE COLUMNAS
             datos_enriquecidos.append({
                 'nombre': nombre,
-                'precio': row['precio'],
-                'peso_pack': peso,
-                'codigo_barras': barcode,
-                'categoria': categoria_final, # <--- AUTO
-                'tags': tags_finales,         # <--- AUTO
-                **info
+                'precio': clean_price(row['price']),
+                'peso_gramos': extract_weight(row['subtitle']), # <--- Compatibilidad total
+                'codigo_barras': f"MERC_{row['id']}",
+                'categoria': info['categoria_detectada'],
+                'tags': info['tags_detectados'],
+                'proteinas_100g': info['proteinas_100g'],
+                'carbohidratos_100g': info['carbohidratos_100g'],
+                'grasas_100g': info['grasas_100g'],
+                'calorias_100g': info['calorias_100g'],
+                'imagen_url': row['main_image_url']
             })
+            print(" -> GUARDADO")
         else:
-            print("\n ❌ ERROR: Producto no encontrado.")
+            print(" -> ⛔ IGNORADO")
 
-    # GUARDAR
+        # GUARDAR CADA 10
+        if len(datos_enriquecidos) >= BATCH_SIZE:
+            pd.DataFrame(datos_enriquecidos).to_sql('productos', engine, if_exists='append', index=False)
+            datos_enriquecidos = []
+            print("💾 Lote guardado.")
+
     if datos_enriquecidos:
-        df_final = pd.DataFrame(datos_enriquecidos)
-        # Limpiamos columnas auxiliares
-        cols_borrar = ['nombre_encontrado', 'categoria_detectada', 'tags_detectados']
-        df_final = df_final.drop(columns=[c for c in cols_borrar if c in df_final.columns])
-            
-        engine = create_engine(DATABASE_URL)
-        df_final.to_sql('productos', engine, if_exists='replace', index=False)
+        pd.DataFrame(datos_enriquecidos).to_sql('productos', engine, if_exists='append', index=False)
         
+    # PK
+    try:
         with engine.connect() as conn:
             conn.execute(text("ALTER TABLE productos ADD COLUMN IF NOT EXISTS id SERIAL PRIMARY KEY;"))
             conn.commit()
-        print(f"\n\n🎉 ¡EXITAZO! BBDD actualizada con Categorías Automáticas.")
-    else:
-        print("\n⚠️ Nada guardado.")
+    except: pass
 
+    print(f"\n🎉 FIN.")
 if __name__ == "__main__":
     main()

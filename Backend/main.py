@@ -1,10 +1,11 @@
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware # <--- 1. IMPORTANTE: NUEVO IMPORT
 from pydantic import BaseModel
 from typing import List, Optional
 import sys
 import os
 
-# Este pequeño "hack" ayuda a que Python encuentre siempre la carpeta backend
+# Tu hack de rutas (lo dejamos tal cual porque te funciona)
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from optimizer_logic import resolver_dieta
@@ -15,7 +16,18 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Definimos el esquema de lo que esperamos recibir (El "Contrato" de la API)
+# --- 2. CONFIGURACIÓN CORS (ESTO ES LO NUEVO) ---
+# Sin esto, tu HTML no podrá "hablar" con el Python
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # El asterisco significa "deja pasar a todo el mundo"
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+# ------------------------------------------------
+
+# Definimos el esquema (Tu contrato)
 class DietaRequest(BaseModel):
     presupuesto: float
     proteina_min: float
@@ -36,7 +48,6 @@ def post_optimizar(request: DietaRequest):
     """
     Recibe las preferencias del usuario y devuelve la lista de la compra optimizada.
     """
-    # Llamamos a tu lógica (que ahora imprime en terminal Y devuelve un diccionario)
     resultado = resolver_dieta(
         presupuesto=request.presupuesto,
         proteina_min=request.proteina_min,
@@ -49,17 +60,14 @@ def post_optimizar(request: DietaRequest):
         max_caprichos=request.max_caprichos
     )
     
-    # Si el optimizador devolvió None (Infeasible), lanzamos error 400
     if resultado is None:
         raise HTTPException(
             status_code=400, 
             detail="No se ha podido encontrar una combinación de productos que cumpla todos tus requisitos. Prueba a subir el presupuesto o bajar las proteínas."
         )
     
-    # Si todo va bien, FastAPI convierte el diccionario automáticamente a JSON
     return resultado
 
 if __name__ == "__main__":
     import uvicorn
-    # Por si quieres ejecutarlo haciendo 'python backend/main.py'
     uvicorn.run(app, host="127.0.0.1", port=8000)
