@@ -1,8 +1,9 @@
 """
-Mercadona Optimizer v5 — Compra Semanal por Comidas
+Mercadona Optimizer v6 — Compra Semanal por Comidas
 - 4 secciones: Desayuno, Comida, Merienda, Cena
-- 3 versiones distintas, todas cerca del presupuesto
-- Cada producto se asigna a una SOLA sección por el solver
+- 3 versiones distintas, maximiza variedad
+- Permite multi-pack (máx 2 unidades por producto)
+- Versiones B/C intentan no repetir de A/B pero pueden si es necesario
 """
 import pulp
 from sqlalchemy import create_engine, text
@@ -11,47 +12,32 @@ import random
 
 DATABASE_URL = "postgresql://postgres:admin@localhost:5432/mercadona_db"
 
-# =====================================================================
-# MAPEO: qué tipo de producto puede ir en qué comida
-# =====================================================================
-COMIDA_MAPPING = {
-    'cereal':   ['desayuno', 'comida', 'merienda', 'cena'],
-    'lacteo':   ['desayuno', 'merienda'],
-    'huevo':    ['desayuno', 'cena'],
-    'fruta':    ['desayuno', 'merienda'],
-    'carne':    ['comida', 'cena'],
-    'pescado':  ['comida', 'cena'],
-    'legumbre': ['comida', 'cena'],
-    'verdura':  ['comida', 'cena'],
-    'conserva': ['comida', 'cena'],
-    'capricho': ['merienda'],
-}
+# COMIDA_MAPPING is now in the BBDD (columna 'momentos' en productos_v2)
+# See Database/clasificar_momentos.py for classification rules
 
 SECCIONES = ['desayuno', 'comida', 'merienda', 'cena']
 
 # =====================================================================
 # MÍNIMOS POR SECCIÓN para cubrir 7 días
 # =====================================================================
-MINIMOS_SECCION = {
-    'desayuno': 4,
-    'comida':   7,
-    'merienda': 3,
-    'cena':     5,
-}
+# Escalado dinámico según presupuesto (se calcula en resolver_version)
 
 # Límites de tipo GLOBAL (cuántos de cada tipo en toda la cesta)
-LIMITES_TIPO = {
+LIMITES_TIPO_BASE = {
     'carne':    (2, 5),
     'pescado':  (1, 3),
     'verdura':  (3, 6),
     'fruta':    (2, 4),
-    'lacteo':   (2, 4),
+    'lacteo':   (2, 5),
     'legumbre': (1, 3),
-    'cereal':   (3, 5),
+    'cereal':   (3, 6),
     'huevo':    (1, 2),
     'capricho': (1, 3),
     'conserva': (0, 3),
 }
+
+# Productos "básicos" que tiene sentido comprar x2
+TIPOS_MULTIPACK = {'carne', 'pescado', 'cereal', 'fruta', 'verdura', 'huevo', 'legumbre', 'lacteo'}
 
 
 def cargar_productos():
@@ -59,7 +45,7 @@ def cargar_productos():
     query = """
         SELECT DISTINCT ON (p.nombre)
             p.id, p.nombre, p.precio, p.peso_gramos, p.imagen_url,
-            c.tipo, c.emoji,
+            c.tipo, c.emoji, p.momentos,
             n.proteinas_100g, n.carbohidratos_100g, n.grasas_100g, n.calorias_100g
         FROM productos_v2 p
         JOIN categorias c ON p.categoria_id = c.id
@@ -80,7 +66,7 @@ def cargar_productos():
         p['gras_pack'] = (p.get('grasas_100g') or 0) * factor
         p['carb_pack'] = (p.get('carbohidratos_100g') or 0) * factor
         p['precio'] = float(p['precio'])
-        p['comidas'] = COMIDA_MAPPING.get(p.get('tipo', 'otros'), [])
+        p['comidas'] = p.get('momentos') or ['comida', 'cena']
 
     print(f"[LOAD] {len(productos)} productos")
     return productos
@@ -88,21 +74,52 @@ def cargar_productos():
 
 def resolver_version(productos, presupuesto, prot_sem, kcal_sem,
                      carb_sem=None, gras_sem=None,
-                     excluir_ids=None, version_name="A"):
+                     penalizar_ids=None, version_name="A"):
     """
-    Resuelve UNA versión: elige productos Y los asigna a secciones.
-    Objetivo: maximizar VARIEDAD (nº de productos) dentro del presupuesto.
+    Genera una versión de cesta semanal.
+    penalizar_ids: IDs de productos usados en versiones anteriores.
+        Se penalizan en la función objetivo pero NO se excluyen.
     """
-    print(f"  [SOLVER] Versión {version_name}...")
-    excluir = excluir_ids or set()
-    prods = [p for p in productos if p['safe_id'] not in excluir]
+    prods = productos  # ya no excluimos nada
 
     if len(prods) < 15:
         return {"version": version_name, "error": "No hay suficientes productos"}
 
+    penalizar = penalizar_ids or set()
+
+    # --- ESCALADO DINÁMICO según presupuesto ---
+    factor = max(0.4, min(presupuesto / 50.0, 1.5))  # 30€→0.6, 50€→1.0, 80€→1.5
+    min_total = max(10, int(20 * factor))
+    max_total = max(15, int(35 * factor))
+    minimos_seccion = {
+        'desayuno': max(2, int(4 * factor)),
+        'comida':   max(3, int(7 * factor)),
+        'merienda': max(1, int(3 * factor)),
+        'cena':     max(2, int(5 * factor)),
+    }
+
     prob = pulp.LpProblem(f"Cesta_{version_name}", pulp.LpMaximize)
 
     # --- VARIABLES ---
+    # se_compra[i] = cuántos packs se compran (0, 1 o 2)
+    se_compra = {}
+    for p in prods:
+        sid = p['safe_id']
+        max_packs = 2 if p['tipo'] in TIPOS_MULTIPACK else 1
+        se_compra[sid] = pulp.LpVariable(f"b_{sid}", lowBound=0, upBound=max_packs, cat='Integer')
+
+    # activo[i] = 1 si se compra al menos 1 (binary flag para asignar a sección)
+    activo = {}
+    for p in prods:
+        sid = p['safe_id']
+        activo[sid] = pulp.LpVariable(f"act_{sid}", cat='Binary')
+
+    # Enlace: activo[i] <= se_compra[i] <= 2 * activo[i]
+    for p in prods:
+        sid = p['safe_id']
+        prob += activo[sid] <= se_compra[sid], f"ActLo_{sid}"
+        prob += se_compra[sid] <= 2 * activo[sid], f"ActHi_{sid}"
+
     # assign[i][s] = 1 si producto i se asigna a sección s
     assign = {}
     for p in prods:
@@ -112,40 +129,38 @@ def resolver_version(productos, presupuesto, prot_sem, kcal_sem,
             if s in p['comidas']:
                 assign[sid][s] = pulp.LpVariable(f"a_{sid}_{s}", cat='Binary')
 
-    # se_compra[i] = 1 si se compra producto i (en cualquier sección)
-    se_compra = {}
-    for p in prods:
-        sid = p['safe_id']
-        se_compra[sid] = pulp.LpVariable(f"b_{sid}", cat='Binary')
-
-    # --- ENLACE: se_compra = sum(assign[s]) para cada producto ---
+    # Enlace: activo = sum(assign) — cada producto activo va a exactamente 1 sección
     for p in prods:
         sid = p['safe_id']
         secciones_posibles = [assign[sid][s] for s in SECCIONES if s in assign[sid]]
         if secciones_posibles:
-            prob += se_compra[sid] == pulp.lpSum(secciones_posibles), f"Link_{sid}"
+            prob += activo[sid] == pulp.lpSum(secciones_posibles), f"Link_{sid}"
         else:
-            prob += se_compra[sid] == 0, f"NoSec_{sid}"
+            prob += activo[sid] == 0, f"NoSec_{sid}"
 
-    # --- SUMAS ---
+    # --- SUMAS (ahora usan se_compra que puede ser 1 o 2) ---
     coste = pulp.lpSum([p['precio'] * se_compra[p['safe_id']] for p in prods])
     prot = pulp.lpSum([p['prot_pack'] * se_compra[p['safe_id']] for p in prods])
     kcal = pulp.lpSum([p['kcal_pack'] * se_compra[p['safe_id']] for p in prods])
     gras = pulp.lpSum([p['gras_pack'] * se_compra[p['safe_id']] for p in prods])
     carb = pulp.lpSum([p['carb_pack'] * se_compra[p['safe_id']] for p in prods])
-    total_prods = pulp.lpSum([se_compra[p['safe_id']] for p in prods])
+    total_prods = pulp.lpSum([activo[p['safe_id']] for p in prods])
 
-    # --- OBJETIVO: maximizar variedad (nº productos) ---
-    prob += total_prods
+    # --- OBJETIVO: maximizar variedad, penalizar repetición de versiones anteriores ---
+    penalizacion = pulp.lpSum([
+        0.3 * activo[p['safe_id']]
+        for p in prods if p['safe_id'] in penalizar
+    ])
+    prob += total_prods - penalizacion
 
-    # --- RESTRICCIONES DE NUTRICIÓN ---
-    prob += prot >= prot_sem, "Min_Prot"
+    # --- RESTRICCIONES DE NUTRICIÓN (escaladas) ---
+    prob += prot >= prot_sem * 0.7, "Min_Prot"  # al menos 70% del objetivo
     prob += kcal <= kcal_sem, "Max_Kcal"
-    prob += kcal >= kcal_sem * 0.85, "Min_Kcal"
+    prob += kcal >= kcal_sem * 0.80, "Min_Kcal"
 
-    # --- PRESUPUESTO: gastar entre 75%-100% ---
+    # --- PRESUPUESTO: gastar entre 60%-100% ---
     prob += coste <= presupuesto, "Max_Budget"
-    prob += coste >= presupuesto * 0.75, "Min_Budget"
+    prob += coste >= presupuesto * 0.60, "Min_Budget"
 
     # --- Carbos/grasas opcionales ---
     if carb_sem is not None:
@@ -155,8 +170,8 @@ def resolver_version(productos, presupuesto, prot_sem, kcal_sem,
         prob += gras >= gras_sem * 0.85, "Min_Gras"
         prob += gras <= gras_sem * 1.15, "Max_Gras"
 
-    # --- MÍNIMOS POR SECCIÓN ---
-    for s, minimo in MINIMOS_SECCION.items():
+    # --- MÍNIMOS POR SECCIÓN (dinámico) ---
+    for s, minimo in minimos_seccion.items():
         items_en_seccion = []
         for p in prods:
             sid = p['safe_id']
@@ -165,16 +180,19 @@ def resolver_version(productos, presupuesto, prot_sem, kcal_sem,
         if items_en_seccion:
             prob += pulp.lpSum(items_en_seccion) >= minimo, f"MinSec_{s}"
 
-    # --- LÍMITES POR TIPO ---
-    for tipo, (min_t, max_t) in LIMITES_TIPO.items():
-        items = [se_compra[p['safe_id']] for p in prods if p['tipo'] == tipo]
+    # --- LÍMITES POR TIPO (escalados con presupuesto) ---
+    for tipo, (min_base, max_base) in LIMITES_TIPO_BASE.items():
+        min_t = max(0, int(min_base * factor))
+        max_t = max(min_t + 1, int(max_base * factor))
+        items = [activo[p['safe_id']] for p in prods if p['tipo'] == tipo]
         if items:
-            prob += pulp.lpSum(items) >= min_t, f"MinT_{tipo}"
+            if min_t > 0:
+                prob += pulp.lpSum(items) >= min_t, f"MinT_{tipo}"
             prob += pulp.lpSum(items) <= max_t, f"MaxT_{tipo}"
 
-    # --- TOTAL PRODUCTOS ---
-    prob += total_prods >= 20, "Min_Total"
-    prob += total_prods <= 30, "Max_Total"
+    # --- TOTAL PRODUCTOS DISTINTOS (dinámico) ---
+    prob += total_prods >= min_total, "Min_Total"
+    prob += total_prods <= max_total, "Max_Total"
 
     # --- ANTI-MONOPOLIO: ningún producto > 25% de kcal ---
     for p in prods:
@@ -182,7 +200,7 @@ def resolver_version(productos, presupuesto, prot_sem, kcal_sem,
             prob += se_compra[p['safe_id']] == 0, f"AntiMono_{p['safe_id']}"
 
     # --- PRECIO MÁXIMO POR PRODUCTO: evitar almejas de 10€ ---
-    max_precio_unit = presupuesto * 0.15  # ningún producto > 15% del presupuesto
+    max_precio_unit = presupuesto * 0.15
     for p in prods:
         if p['precio'] > max_precio_unit:
             prob += se_compra[p['safe_id']] == 0, f"MaxPrice_{p['safe_id']}"
@@ -200,7 +218,8 @@ def resolver_version(productos, presupuesto, prot_sem, kcal_sem,
 
     for p in prods:
         sid = p['safe_id']
-        if se_compra[sid].varValue and se_compra[sid].varValue > 0.5:
+        qty = int(round(se_compra[sid].varValue or 0))
+        if qty > 0:
             ids_usados.add(sid)
             # Determinar la sección asignada
             seccion_asignada = 'comida'
@@ -210,18 +229,23 @@ def resolver_version(productos, presupuesto, prot_sem, kcal_sem,
                         seccion_asignada = s
                         break
 
+            nombre = p['nombre']
+            if qty > 1:
+                nombre = f"{p['nombre']} (x{qty})"
+
             item = {
-                "nombre": p['nombre'],
-                "precio": round(p['precio'], 2),
+                "nombre": nombre,
+                "precio": round(p['precio'] * qty, 2),
                 "tipo": p['tipo'],
                 "emoji": p.get('emoji', ''),
+                "imagen_url": p.get('imagen_url', ''),
             }
             secciones[seccion_asignada].append(item)
-            t_precio += p['precio']
-            t_prot += p['prot_pack']
-            t_kcal += p['kcal_pack']
-            t_gras += p['gras_pack']
-            t_carb += p['carb_pack']
+            t_precio += p['precio'] * qty
+            t_prot += p['prot_pack'] * qty
+            t_kcal += p['kcal_pack'] * qty
+            t_gras += p['gras_pack'] * qty
+            t_carb += p['carb_pack'] * qty
 
     for s in secciones.values():
         s.sort(key=lambda x: x['nombre'])
@@ -238,7 +262,8 @@ def resolver_version(productos, presupuesto, prot_sem, kcal_sem,
             "gras": round(t_gras / 7, 1),
             "carb": round(t_carb / 7, 1)
         },
-        "secciones": secciones
+        "secciones": secciones,
+        "_ids_usados": list(ids_usados),  # para penalizar en versiones siguientes
     }
 
 
@@ -252,7 +277,6 @@ def generar_propuestas_api(presupuesto_max, proteina_diaria, kcal_diaria,
     # Filtrar tipos excluidos (perfil vegano/vegetariano)
     if excluir_tipos:
         productos = [p for p in productos if p['tipo'] not in excluir_tipos]
-        # Re-indexar safe_id
         for i, p in enumerate(productos):
             p['safe_id'] = i
         print(f"  [FILTER] Excluidos tipos {excluir_tipos} -> {len(productos)} prods")
@@ -262,43 +286,29 @@ def generar_propuestas_api(presupuesto_max, proteina_diaria, kcal_diaria,
     carb_sem = carbohidratos_diarios * 7 if carbohidratos_diarios else None
     gras_sem = grasas_diarias * 7 if grasas_diarias else None
 
-    # Versión A
+    # Versión A: sin penalización
     va = resolver_version(productos, presupuesto_max, prot_sem, kcal_sem,
-                          carb_sem, gras_sem, excluir_ids=set(), version_name="A")
+                          carb_sem, gras_sem, penalizar_ids=set(), version_name="A")
 
-    # Versión B: excluir prods de A
-    ids_a = set()
-    if 'secciones' in va:
-        nombres_a = set()
-        for sec in va['secciones'].values():
-            for item in sec:
-                nombres_a.add(item['nombre'])
-        for p in productos:
-            if p['nombre'] in nombres_a:
-                ids_a.add(p['safe_id'])
-
+    # Versión B: penaliza (pero no excluye) productos de A
+    ids_a = set(va.get('_ids_usados', []))
     vb = resolver_version(productos, presupuesto_max, prot_sem, kcal_sem,
-                          carb_sem, gras_sem, excluir_ids=ids_a, version_name="B")
+                          carb_sem, gras_sem, penalizar_ids=ids_a, version_name="B")
 
-    # Versión C: excluir prods de A+B
-    ids_ab = set(ids_a)
-    if 'secciones' in vb:
-        nombres_b = set()
-        for sec in vb['secciones'].values():
-            for item in sec:
-                nombres_b.add(item['nombre'])
-        for p in productos:
-            if p['nombre'] in nombres_b:
-                ids_ab.add(p['safe_id'])
-
+    # Versión C: penaliza productos de A + B
+    ids_ab = ids_a | set(vb.get('_ids_usados', []))
     vc = resolver_version(productos, presupuesto_max, prot_sem, kcal_sem,
-                          carb_sem, gras_sem, excluir_ids=ids_ab, version_name="C")
+                          carb_sem, gras_sem, penalizar_ids=ids_ab, version_name="C")
+
+    # Limpiar campo interno antes de devolver
+    for v in [va, vb, vc]:
+        v.pop('_ids_usados', None)
 
     return {"version_a": va, "version_b": vb, "version_c": vc}
 
 
 if __name__ == "__main__":
-    result = generar_propuestas_api(presupuesto_max=50, proteina_diaria=150, kcal_diaria=2400)
+    result = generar_propuestas_api(presupuesto_max=80, proteina_diaria=150, kcal_diaria=2400)
     for key in ['version_a', 'version_b', 'version_c']:
         data = result[key]
         if 'error' in data:

@@ -212,4 +212,12 @@ __marimo__/
 test_output.txt
 auth_test*.txt
 Backend/uploads/
+Backend/test_v6.py
 *.session.sql
+node_modules/
+Frontend_old/
+Frontend/dist/
+momentos_output.txt
+test_momentos*.txt
+.gemini/
+.agent/

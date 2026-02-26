@@ -1,0 +1,14 @@
+﻿python :   File "<string>", line 1
+En línea: 1 Carácter: 1
++ python -c "import sys; sys.stdout.reconfigure(encoding='utf-8'); from ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (  File "<string>", line 1:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+    import sys; sys.stdout.reconfigure(encoding='utf-8'); from optimizer_logic import generar_propuestas_api; r = 
+generar_propuestas_api(80, 150, 2400); [print(f'{k}: {r[k].get(chr(34)+'precio_total'+chr(34), 
+r[k].get(chr(34)+'error'+chr(34),chr(34)+'?'+chr(34)))} EUR, {r[k].get(chr(34)+'total_productos'+chr(34),0)} prods') 
+for k in ['version_a','version_b','version_c']]
+                                                                                                                       
+                                                                   ^^^^^^^^^^^^
+SyntaxError: f-string: unmatched '('
