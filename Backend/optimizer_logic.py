@@ -239,6 +239,10 @@ def resolver_version(productos, presupuesto, prot_sem, kcal_sem,
                 "tipo": p['tipo'],
                 "emoji": p.get('emoji', ''),
                 "imagen_url": p.get('imagen_url', ''),
+                "prot_pack": round(p['prot_pack'] * qty, 1),
+                "kcal_pack": round(p['kcal_pack'] * qty, 0),
+                "carb_pack": round(p['carb_pack'] * qty, 1),
+                "gras_pack": round(p['gras_pack'] * qty, 1),
             }
             secciones[seccion_asignada].append(item)
             t_precio += p['precio'] * qty

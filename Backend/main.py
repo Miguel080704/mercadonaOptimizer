@@ -187,6 +187,44 @@ def post_optimizar(request: DietaRequest):
         print(f"Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@app.get("/buscar-productos")
+def buscar_productos(q: str = "", db: Session = Depends(get_db)):
+    """Busca productos por nombre. Devuelve hasta 20 resultados con macros."""
+    if len(q) < 2:
+        return []
+    rows = db.execute(
+        text("""
+            SELECT p.id, p.nombre, p.precio, p.peso_gramos, p.imagen_url,
+                   c.tipo, c.emoji, p.momentos,
+                   n.proteinas_100g, n.carbohidratos_100g, n.grasas_100g, n.calorias_100g
+            FROM productos_v2 p
+            JOIN categorias c ON p.categoria_id = c.id
+            JOIN nutricion n ON n.producto_id = p.id
+            WHERE p.nombre ILIKE :q AND p.precio > 0
+            ORDER BY p.nombre ASC
+            LIMIT 20
+        """),
+        {"q": f"%{q}%"}
+    ).fetchall()
+    result = []
+    for r in rows:
+        peso = max(float(r[3] or 100), 1)
+        factor = peso / 100.0
+        result.append({
+            "nombre": r[1],
+            "precio": round(float(r[2]), 2),
+            "tipo": r[5],
+            "emoji": r[6] or "",
+            "imagen_url": r[4] or "",
+            "momentos": r[7] or ["comida", "cena"],
+            "prot_pack": round((r[8] or 0) * factor, 1),
+            "kcal_pack": round((r[11] or 0) * factor, 0),
+            "carb_pack": round((r[9] or 0) * factor, 1),
+            "gras_pack": round((r[10] or 0) * factor, 1),
+        })
+    return result
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
