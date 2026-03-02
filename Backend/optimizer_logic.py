@@ -74,11 +74,12 @@ def cargar_productos():
 
 def resolver_version(productos, presupuesto, prot_sem, kcal_sem,
                      carb_sem=None, gras_sem=None,
-                     penalizar_ids=None, version_name="A"):
+                     penalizar_ids=None, version_name="A", secciones_fijas=None):
     """
     Genera una versión de cesta semanal.
     penalizar_ids: IDs de productos usados en versiones anteriores.
         Se penalizan en la función objetivo pero NO se excluyen.
+    secciones_fijas: Diccionario con los productos fijados por sección.
     """
     prods = productos  # ya no excluimos nada
 
@@ -86,6 +87,25 @@ def resolver_version(productos, presupuesto, prot_sem, kcal_sem,
         return {"version": version_name, "error": "No hay suficientes productos"}
 
     penalizar = penalizar_ids or set()
+
+    # --- PROCESAR SECCIONES FIJAS ---
+    fijas_counts = {}
+    if secciones_fijas:
+        name_to_id = { p['nombre']: p['safe_id'] for p in prods }
+        for sec, items in secciones_fijas.items():
+            for item in items:
+                nombre_base = item['nombre']
+                qty = 1
+                if " (x" in nombre_base and nombre_base.endswith(")"):
+                    parts = nombre_base.rsplit(" (x", 1)
+                    nombre_base = parts[0]
+                    qty = int(parts[1][:-1])
+                
+                sid = name_to_id.get(nombre_base)
+                if sid is not None:
+                    if sid not in fijas_counts:
+                        fijas_counts[sid] = {}
+                    fijas_counts[sid][sec] = fijas_counts[sid].get(sec, 0) + qty
 
     # --- ESCALADO DINÁMICO según presupuesto ---
     factor = max(0.4, min(presupuesto / 50.0, 1.5))  # 30€→0.6, 50€→1.0, 80€→1.5
@@ -137,6 +157,19 @@ def resolver_version(productos, presupuesto, prot_sem, kcal_sem,
             prob += activo[sid] == pulp.lpSum(secciones_posibles), f"Link_{sid}"
         else:
             prob += activo[sid] == 0, f"NoSec_{sid}"
+
+    # --- RESTRICCIONES DE SECCIONES FIJAS ---
+    if fijas_counts:
+        for sid, sec_counts in fijas_counts.items():
+            total_qty = sum(sec_counts.values())
+            # Limitar a max=2 o según el max_packs que permita
+            max_packs_allowed = 2 if prods[sid]['tipo'] in TIPOS_MULTIPACK else 1
+            safe_qty = min(total_qty, max_packs_allowed)
+            
+            prob += se_compra[sid] >= safe_qty, f"FixQtyMin_{sid}"
+            assigned_sec = list(sec_counts.keys())[0] # The product is assigned to the first section where it was fixed
+            if assigned_sec in assign[sid]:
+                prob += assign[sid][assigned_sec] == 1, f"FixSec_{sid}_{assigned_sec}"
 
     # --- SUMAS (ahora usan se_compra que puede ser 1 o 2) ---
     coste = pulp.lpSum([p['precio'] * se_compra[p['safe_id']] for p in prods])
@@ -273,7 +306,7 @@ def resolver_version(productos, presupuesto, prot_sem, kcal_sem,
 
 def generar_propuestas_api(presupuesto_max, proteina_diaria, kcal_diaria,
                            carbohidratos_diarios=None, grasas_diarias=None,
-                           excluir_tipos=None):
+                           excluir_tipos=None, secciones_fijas=None, solo_version=None):
     productos = cargar_productos()
     if not productos:
         return {"error": "No se pudieron cargar productos"}
@@ -289,6 +322,13 @@ def generar_propuestas_api(presupuesto_max, proteina_diaria, kcal_diaria,
     kcal_sem = kcal_diaria * 7
     carb_sem = carbohidratos_diarios * 7 if carbohidratos_diarios else None
     gras_sem = grasas_diarias * 7 if grasas_diarias else None
+
+    # Si nos piden solo regenerar una versión (ej: "A")
+    if solo_version and secciones_fijas:
+        v = resolver_version(productos, presupuesto_max, prot_sem, kcal_sem,
+                             carb_sem, gras_sem, penalizar_ids=set(), 
+                             version_name=solo_version, secciones_fijas=secciones_fijas)
+        return {f"version_{solo_version.lower()}": v}
 
     # Versión A: sin penalización
     va = resolver_version(productos, presupuesto_max, prot_sem, kcal_sem,

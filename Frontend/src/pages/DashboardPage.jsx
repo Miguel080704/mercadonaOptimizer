@@ -1,10 +1,12 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Settings, LogOut, Sparkles, ChevronDown, X, Flame, Beef, Wheat, Droplets, Plus, Search, Trash2, ArrowRightLeft, FileDown, Copy } from 'lucide-react';
+import { Settings, LogOut, Sparkles, ChevronDown, X, Flame, Beef, Wheat, Droplets, Plus, Search, Trash2, ArrowRightLeft, FileDown, Copy, ShoppingCart, Clock, CheckCircle, BarChart3, RefreshCw } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
 import { apiPost, apiPut, apiUpload, apiGet, avatarUrl } from '../api';
+import NutritionalDashboard from '../components/NutritionalDashboard';
 import s from './DashboardPage.module.css';
 
 const PROFILE_ICONS = {
@@ -64,6 +66,7 @@ function recalcMacros(secciones) {
 
 export default function DashboardPage() {
     const { user, perfiles, logout, refreshUser } = useAuth();
+    const navigate = useNavigate();
 
     const [presupuesto, setPresupuesto] = useState(user?.presupuesto_default || 50);
     const [proteinas, setProteinas] = useState(user?.proteinas_default || 150);
@@ -77,11 +80,43 @@ export default function DashboardPage() {
     const [pmNombre, setPmNombre] = useState('');
     const [pmApellidos, setPmApellidos] = useState('');
     const [pmPerfil, setPmPerfil] = useState('estandar');
+    const [foto, setFoto] = useState(null);
+    const [initial, setInitial] = useState('');
+
+    // Checkout State
+    const [showCheckout, setShowCheckout] = useState(false);
+    const [checkoutVersion, setCheckoutVersion] = useState(null);
+    const [isCheckingOut, setIsCheckingOut] = useState(false);
+    const [regenerating, setRegenerating] = useState(null); // label of the version being regenerated
     const [pmPres, setPmPres] = useState(50);
     const [pmProt, setPmProt] = useState(150);
     const [pmKcal, setPmKcal] = useState(2400);
     const [pmCarb, setPmCarb] = useState('');
     const fotoRef = useRef(null);
+
+    useEffect(() => {
+        const savedOrder = sessionStorage.getItem('mercadona_load_order');
+        if (savedOrder) {
+            try {
+                const order = JSON.parse(savedOrder);
+                setResults(prev => {
+                    const base = prev || { version_a: null, version_b: null, version_c: null };
+                    return {
+                        ...base,
+                        version_c: {
+                            precio_total: order.precio_total,
+                            macros: order.macros || {},
+                            secciones: order.secciones || {}
+                        }
+                    };
+                });
+                toast.success('¡Cesta antigua cargada en la Versión C!');
+            } catch (e) {
+                console.error("Error parsing saved order", e);
+            }
+            sessionStorage.removeItem('mercadona_load_order');
+        }
+    }, []);
 
     const calcular = async () => {
         setLoading(true);
@@ -97,13 +132,52 @@ export default function DashboardPage() {
                 grasas: parseFloat(grasas) || null,
                 excluir_tipos: excluir,
             });
-            if (data.error) throw new Error(data.error);
-            setResults(data);
-            toast.success('¡Compra generada!');
+            if (data.version_a && data.version_b && data.version_c) {
+                setResults(data);
+                toast.success('¡Versiones generadas!');
+            } else {
+                toast.error(data.error || 'Error generando opciones');
+            }
         } catch (e) {
-            toast.error(e.message);
+            toast.error('Error de conexión');
         } finally {
             setLoading(false);
+        }
+    };
+
+    const regenerateSection = async (label, currentData, sectionToRegenerate) => {
+        const fixedSections = {};
+        for (const [sec, items] of Object.entries(currentData.secciones)) {
+            if (sec !== sectionToRegenerate) {
+                fixedSections[sec] = items;
+            }
+        }
+
+        const req = {
+            presupuesto: parseFloat(presupuesto) || 50,
+            proteinas: parseFloat(proteinas) || 150,
+            calorias: parseFloat(calorias) || 2000,
+            carbohidratos: parseFloat(carbohidratos) || null,
+            grasas: parseFloat(grasas) || null,
+            excluir_tipos: perfiles[user?.perfil_dieta || 'estandar']?.excluir_tipos || [],
+            secciones_fijas: fixedSections,
+            solo_version: label.includes('A') ? 'A' : label.includes('B') ? 'B' : 'C'
+        };
+
+        setRegenerating(label);
+        try {
+            const versionKey = `version_${req.solo_version.toLowerCase()}`;
+            const res = await apiPost('/optimizar', req);
+            if (res[versionKey] && !res[versionKey].error) {
+                setResults(prev => ({ ...prev, [versionKey]: res[versionKey] }));
+                toast.success(`${sectionToRegenerate.charAt(0).toUpperCase() + sectionToRegenerate.slice(1)} regenerado`);
+            } else {
+                toast.error(res[versionKey]?.error || 'Error regenerando sección');
+            }
+        } catch (e) {
+            toast.error('Error de conexión al regenerar');
+        } finally {
+            setRegenerating(null);
         }
     };
 
@@ -168,17 +242,46 @@ export default function DashboardPage() {
         }
     };
 
-    const initial = (user?.nombre || '?')[0].toUpperCase();
-    const foto = avatarUrl(user?.foto_url);
+    const handleCheckout = async (e) => {
+        e.preventDefault();
+        setIsCheckingOut(true);
+        try {
+            const payload = {
+                precio_total: checkoutVersion.data.precio_total,
+                version_label: checkoutVersion.label,
+                macros_json: checkoutVersion.data.macros,
+                secciones_json: checkoutVersion.data.secciones
+            };
+            const res = await apiPost('/pedidos', payload);
+            if (res.error) throw new Error(res.error);
+
+            // Wait 1.5s to simulate payment processing
+            await new Promise(r => setTimeout(r, 1500));
+
+            toast.success('¡Pago confirmado! Pedido realizado con éxito.');
+            setShowCheckout(false);
+            setCheckoutVersion(null);
+        } catch (e) {
+            toast.error(e.message || 'Error en el checkout');
+        } finally {
+            setIsCheckingOut(false);
+        }
+    };
+
+    const userInitial = (user?.nombre || '?')[0].toUpperCase();
+    const userFoto = avatarUrl(user?.foto_url);
 
     return (
         <div className={s.dashboard}>
             <header className={s.topbar}>
                 <span className={s.topbarTitle}>Mercadona AI Optimizer</span>
                 <div className={s.topbarActions}>
+                    <button className={s.btnIcon} onClick={() => navigate('/pedidos')} title="Historial de pedidos">
+                        <Clock size={14} /> Mis Pedidos
+                    </button>
                     <button className={s.userPill} onClick={openProfile}>
                         <div className={s.avatar}>
-                            {foto ? <img src={foto} alt="" /> : initial}
+                            {userFoto ? <img src={userFoto} alt="" /> : userInitial}
                         </div>
                         <span className={s.userName}>{user?.nombre || 'Usuario'}</span>
                     </button>
@@ -246,6 +349,9 @@ export default function DashboardPage() {
                                 headerClass={vc.headerClass}
                                 delay={idx * 0.1}
                                 onUpdate={(newSecs) => updateVersion(vc.key, newSecs)}
+                                onCheckout={(label, data) => { setCheckoutVersion({ label, data }); setShowCheckout(true); }}
+                                onRegenerate={regenerateSection}
+                                isRegenerating={regenerating === vc.label}
                                 allResults={results}
                                 allVersions={VERSION_CONFIG}
                             />
@@ -302,12 +408,55 @@ export default function DashboardPage() {
                     </motion.div>
                 )}
             </AnimatePresence>
+
+            {/* CHECKOUT MODAL */}
+            <AnimatePresence>
+                {showCheckout && checkoutVersion && (
+                    <motion.div className={s.imgOverlay}
+                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                        onClick={() => !isCheckingOut && setShowCheckout(false)}>
+                        <motion.div className={`${s.swapModal} ${s.checkoutModal}`}
+                            initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }}
+                            exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                            onClick={(e) => e.stopPropagation()}>
+                            <div className={s.searchHeader}>
+                                <h3><ShoppingCart size={18} /> Finalizar Compra</h3>
+                                <button className={s.pmClose} onClick={() => !isCheckingOut && setShowCheckout(false)} disabled={isCheckingOut}>
+                                    <X size={18} />
+                                </button>
+                            </div>
+                            <div className={s.swapBody}>
+                                <div className={s.checkoutSummary}>
+                                    <h4>Resumen del Pedido</h4>
+                                    <div className={s.cRow}><span>Cesta:</span> <strong>{checkoutVersion.label}</strong></div>
+                                    <div className={s.cRow}><span>Productos:</span> <strong>{checkoutVersion.data.total_productos}</strong></div>
+                                    <div className={s.cRow}><span>Total a Pagar:</span> <strong className={s.cTotal}>{checkoutVersion.data.precio_total.toFixed(2)}€</strong></div>
+                                </div>
+                                <form onSubmit={handleCheckout} className={s.checkoutForm}>
+                                    <div className={s.pmField}>
+                                        <label>Dirección de Envío (Simulada)</label>
+                                        <input type="text" className={s.pmInput} placeholder="Calle Falsa 123, Madrid" required disabled={isCheckingOut} />
+                                    </div>
+                                    <div className={s.pmField}>
+                                        <label>Número de Tarjeta (Simulada)</label>
+                                        <input type="text" className={s.pmInput} placeholder="**** **** **** 1234" required disabled={isCheckingOut} />
+                                    </div>
+                                    <button type="submit" className={s.btnGenerate} style={{ width: '100%', marginTop: '10px' }} disabled={isCheckingOut}>
+                                        {isCheckingOut ? <span className={s.loader}></span> : <><CheckCircle size={16} /> Confirmar y Pagar</>}
+                                    </button>
+                                </form>
+                            </div>
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
         </div>
     );
 }
 
 /* === VERSION CARD COMPONENT === */
-function VersionCard({ versionKey, data, label, headerClass, delay, onUpdate, allResults, allVersions }) {
+function VersionCard({ versionKey, data, label, headerClass, delay, onUpdate, onCheckout, onRegenerate, isRegenerating, allResults, allVersions }) {
     const [openSections, setOpenSections] = useState({ desayuno: true, comida: true, merienda: true, cena: true });
     const [selectedProduct, setSelectedProduct] = useState(null);
     const [showSearch, setShowSearch] = useState(null);
@@ -315,6 +464,7 @@ function VersionCard({ versionKey, data, label, headerClass, delay, onUpdate, al
     const [searchResults, setSearchResults] = useState([]);
     const [searchLoading, setSearchLoading] = useState(false);
     const [pendingDelete, setPendingDelete] = useState(null); // { section, index, product }
+    const [showDashboard, setShowDashboard] = useState(false);
     const searchRef = useRef(null);
 
     const toggle = (sec) => setOpenSections(prev => ({ ...prev, [sec]: !prev[sec] }));
@@ -550,6 +700,12 @@ function VersionCard({ versionKey, data, label, headerClass, delay, onUpdate, al
                                 <span className={s.mealIcon}>{mcfg.icon}</span>
                                 <span className={`${s.mealName} ${s[sec]}`}>{mcfg.label}</span>
                                 <span className={s.mealCount}>{items.length}</span>
+                                <button className={s.regenBtn}
+                                    onClick={(e) => { e.stopPropagation(); onRegenerate && onRegenerate(label, data, sec); }}
+                                    title={`Regenerar ${mcfg.label}`}
+                                    disabled={isRegenerating}>
+                                    <RefreshCw size={14} className={isRegenerating ? s.spinning : ''} />
+                                </button>
                                 <ChevronDown size={14} className={`${s.mealChevron} ${isOpen ? s.mealChevronOpen : ''}`} />
                             </div>
                             <AnimatePresence>
@@ -587,17 +743,35 @@ function VersionCard({ versionKey, data, label, headerClass, delay, onUpdate, al
                     );
                 })}
             </div>
+
             <div className={s.versionFooter}>
                 <span>{data.total_productos} productos · {data.precio_total}€</span>
                 <div className={s.footerActions}>
-                    <button className={s.footerBtn} onClick={() => copyList(data, label)} title="Copiar lista">
-                        <Copy size={13} /> Copiar
+                    <button className={s.footerBtn} onClick={() => copyList(data, label)} title="Copiar al portapapeles">
+                        <Copy size={13} />
                     </button>
-                    <button className={`${s.footerBtn} ${s.footerBtnPrimary}`} onClick={() => exportPDF(data, label)} title="Descargar PDF">
-                        <FileDown size={13} /> PDF
+                    <button className={s.footerBtn} onClick={() => exportPDF(data, label)} title="Descargar PDF">
+                        <FileDown size={13} />
+                    </button>
+                    <button className={s.footerBtn} onClick={() => setShowDashboard(true)} title="Análisis Nutricional">
+                        <BarChart3 size={13} /> Análisis
+                    </button>
+                    <button className={`${s.footerBtn} ${s.footerBtnPrimary}`} onClick={() => onCheckout(label, data)}>
+                        <ShoppingCart size={13} /> Comprar
                     </button>
                 </div>
             </div>
+
+            {/* NUTRITIONAL DASHBOARD MODAL */}
+            <AnimatePresence>
+                {showDashboard && (
+                    <NutritionalDashboard
+                        versionLabel={label}
+                        data={data}
+                        onClose={() => setShowDashboard(false)}
+                    />
+                )}
+            </AnimatePresence>
 
             {/* PRODUCT IMAGE POPUP */}
             <AnimatePresence>
@@ -721,6 +895,7 @@ function VersionCard({ versionKey, data, label, headerClass, delay, onUpdate, al
                     </motion.div>
                 )}
             </AnimatePresence>
+
         </motion.article>
     );
 }

@@ -1,0 +1,246 @@
+.pageWrapper {
+    min-height: 100vh;
+    background: var(--bg-main);
+    color: var(--text-main);
+    display: flex;
+    flex-direction: column;
+}
+
+.topbar {
+    display: flex;
+    align-items: center;
+    padding: 20px 30px;
+    background: var(--bg-card);
+    border-bottom: 1px solid var(--border);
+    gap: 20px;
+}
+
+.btnBack {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: transparent;
+    border: none;
+    color: var(--text-soft);
+    font-size: 0.9rem;
+    cursor: pointer;
+    font-weight: 500;
+    transition: var(--transition);
+}
+
+.btnBack:hover {
+    color: var(--text-main);
+}
+
+.pageTitle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 1.2rem;
+    font-weight: 600;
+    color: var(--primary);
+    margin-left: auto;
+}
+
+.mainContent {
+    flex: 1;
+    padding: 30px;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+}
+
+.ordersContainer {
+    width: 100%;
+    max-width: 800px;
+}
+
+.emptyState {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--text-soft);
+    background: var(--bg-card);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border);
+}
+
+.orderList {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.orderCard {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 20px;
+    transition: var(--transition);
+}
+
+.orderCard:hover {
+    border-color: rgba(74, 222, 128, 0.3);
+}
+
+.orderHeader {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 15px;
+    margin-bottom: 15px;
+}
+
+.orderDate {
+    font-size: 0.85rem;
+    color: var(--text-soft);
+    margin-bottom: 4px;
+}
+
+.orderLabel {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--text-main);
+}
+
+.orderTotal {
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: var(--primary);
+    background: rgba(74, 222, 128, 0.1);
+    padding: 4px 12px;
+    border-radius: var(--radius-sm);
+    box-shadow: 0 0 10px rgba(74, 222, 128, 0.05);
+    /* subtle glow */
+}
+
+.orderMacros {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+.macroBadge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--bg-card-hover);
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 0.85rem;
+    font-weight: 500;
+}
+
+.orderActions {
+    display: flex;
+    gap: 12px;
+}
+
+.btnSecondary,
+.btnAccent {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 10px 16px;
+    border: none;
+    border-radius: var(--radius-md);
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.btnSecondary {
+    background: var(--bg-card-hover);
+    color: var(--text-main);
+    flex: 1;
+}
+
+.btnSecondary:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.btnAccent {
+    background: rgba(74, 222, 128, 0.1);
+    color: var(--primary);
+    border: 1px solid var(--primary);
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+}
+
+.btnAccent:hover {
+    background: var(--primary);
+    color: var(--bg-main);
+    box-shadow: 0 0 15px rgba(74, 222, 128, 0.4);
+}
+
+.orderDetails {
+    margin-top: 20px;
+    padding-top: 20px;
+    border-top: 1px dashed var(--border);
+    animation: fadeIn 0.3s ease;
+}
+
+.orderSection {
+    margin-bottom: 15px;
+}
+
+.sectionTitle {
+    font-weight: 600;
+    color: var(--text-main);
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.sectionTitle span {
+    color: var(--text-soft);
+    font-size: 0.85rem;
+    font-weight: 400;
+}
+
+.orderSectionItems {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 8px;
+}
+
+.productItem {
+    background: var(--bg-main);
+    padding: 8px 12px;
+    border-radius: var(--radius-sm);
+    font-size: 0.85rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border: 1px solid var(--border);
+}
+
+.productPrice {
+    color: var(--text-soft);
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(-5px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@media (max-width: 600px) {
+    .orderActions {
+        flex-direction: column;
+    }
+
+    .orderSectionItems {
+        grid-template-columns: 1fr;
+    }
+}

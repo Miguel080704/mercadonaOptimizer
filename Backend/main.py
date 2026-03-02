@@ -12,7 +12,7 @@ from database import get_db
 from auth import hash_password, verify_password, create_access_token, require_auth, get_current_user_id
 from models import (
     RegisterRequest, LoginRequest, PerfilUpdate,
-    DietaRequest, PERFILES_DIETA
+    DietaRequest, PERFILES_DIETA, PedidoRequest
 )
 
 # Crear carpeta para fotos de perfil
@@ -181,6 +181,8 @@ def post_optimizar(request: DietaRequest):
             carbohidratos_diarios=request.carbohidratos,
             grasas_diarias=request.grasas,
             excluir_tipos=request.excluir_tipos,
+            secciones_fijas=request.secciones_fijas,
+            solo_version=request.solo_version,
         )
         return resultado
     except Exception as e:
@@ -224,7 +226,70 @@ def buscar_productos(q: str = "", db: Session = Depends(get_db)):
             "gras_pack": round((r[10] or 0) * factor, 1),
         })
     return result
+@app.post("/pedidos")
+def crear_pedido(req: PedidoRequest, user_id: int = Depends(require_auth), db: Session = Depends(get_db)):
+    """Crea un nuevo pedido guardando la cesta comprada por el usuario."""
+    import json
+    result = db.execute(
+        text("""
+            INSERT INTO pedidos (usuario_id, precio_total, version_label, macros_json, secciones_json)
+            VALUES (:uid, :precio, :label, :macros, :secciones)
+            RETURNING id, fecha
+        """),
+        {
+            "uid": user_id,
+            "precio": req.precio_total,
+            "label": req.version_label,
+            "macros": json.dumps(req.macros_json),
+            "secciones": json.dumps(req.secciones_json)
+        }
+    )
+    db.commit()
+    row = result.fetchone()
+    return {"id": row[0], "fecha": row[1], "message": "Pedido realizado con éxito"}
+
+@app.get("/pedidos")
+def listar_pedidos(user_id: int = Depends(require_auth), db: Session = Depends(get_db)):
+    """Devuelve el historial de pedidos del usuario, ordenado por fecha desc."""
+    rows = db.execute(
+        text("""
+            SELECT id, fecha, precio_total, version_label, macros_json, secciones_json
+            FROM pedidos
+            WHERE usuario_id = :uid
+            ORDER BY fecha DESC
+        """),
+        {"uid": user_id}
+    ).fetchall()
+    
+    pedidos = []
+    for r in rows:
+        pedidos.append({
+            "id": r[0],
+            "fecha": r[1].isoformat(),
+            "precio_total": float(r[2]),
+            "version_label": r[3],
+            "macros_json": r[4] if isinstance(r[4], dict) else {},
+            "secciones_json": r[5] if isinstance(r[5], dict) else {}
+        })
+    return pedidos
+
+def _init_db():
+    engine = get_db().__next__().bind
+    with engine.connect() as conn:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS pedidos (
+                id SERIAL PRIMARY KEY,
+                usuario_id INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+                fecha TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                precio_total DECIMAL(10, 2) NOT NULL,
+                version_label VARCHAR(50) NOT NULL,
+                macros_json JSONB NOT NULL,
+                secciones_json JSONB NOT NULL
+            );
+        """))
+        conn.commit()
 
 if __name__ == "__main__":
+    _init_db()
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

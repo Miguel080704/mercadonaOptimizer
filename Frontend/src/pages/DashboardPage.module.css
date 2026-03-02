@@ -418,6 +418,46 @@
     margin-left: auto;
 }
 
+.regenBtn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    padding: 4px;
+    border-radius: var(--radius-xs);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: var(--transition);
+    margin-right: 8px;
+}
+
+.regenBtn:hover:not(:disabled) {
+    border-color: var(--primary);
+    color: var(--primary);
+    background: var(--primary-glow);
+}
+
+.regenBtn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.spinning {
+    animation: spinButton 1s linear infinite;
+    color: var(--primary);
+}
+
+@keyframes spinButton {
+    from {
+        transform: rotate(0deg);
+    }
+
+    to {
+        transform: rotate(360deg);
+    }
+}
+
 .mealChevron {
     color: var(--text-muted);
     transition: var(--transition);
@@ -466,7 +506,7 @@
 }
 
 .versionFooter {
-    padding: 10px 16px;
+    padding: 12px 16px;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -1036,6 +1076,133 @@
 .swapDeleteBtn:hover {
     background: rgba(239, 68, 68, 0.2);
     border-color: #ef4444;
+}
+
+/* CHECKOUT & ORDERS MODAL (Reusing some swapModal / pmModal styles) */
+.checkoutModal {
+    max-width: 400px;
+}
+
+.checkoutSummary {
+    background: var(--bg-card-hover);
+    padding: 16px;
+    border-radius: var(--radius-sm);
+    margin-bottom: 20px;
+    border: 1px solid var(--border);
+}
+
+.checkoutSummary h4 {
+    margin: 0 0 10px 0;
+    font-size: 0.9rem;
+    color: var(--text-main);
+}
+
+.cRow {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.85rem;
+    color: var(--text-soft);
+    margin-bottom: 6px;
+}
+
+.cTotal {
+    color: var(--primary);
+    font-size: 1.1rem;
+}
+
+.checkoutForm {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.ordersModal {
+    max-width: 600px;
+    width: 100%;
+}
+
+.orderList {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.orderCard {
+    background: var(--bg-body);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 16px;
+}
+
+.orderHeader {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 12px;
+}
+
+.orderDate {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.orderLabel {
+    font-weight: 700;
+    color: var(--text-main);
+    font-size: 0.95rem;
+    margin-top: 2px;
+}
+
+.orderTotal {
+    font-weight: 800;
+    color: var(--primary);
+    font-size: 1.1rem;
+}
+
+.orderMacros {
+    font-size: 0.8rem;
+    color: var(--text-soft);
+    margin-bottom: 16px;
+    background: var(--bg-card-hover);
+    padding: 8px 12px;
+    border-radius: var(--radius-sm);
+    display: inline-block;
+}
+
+.orderActions {
+    display: flex;
+    gap: 10px;
+}
+
+.orderDetails {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.orderSection strong {
+    font-size: 0.8rem;
+    color: var(--text-main);
+    display: block;
+    margin-bottom: 4px;
+}
+
+.orderSectionItems {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.orderSectionItems span {
+    font-size: 0.75rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    padding: 4px 8px;
+    border-radius: var(--radius-xs);
+    color: var(--text-soft);
 }
 
 @media (max-width: 768px) {

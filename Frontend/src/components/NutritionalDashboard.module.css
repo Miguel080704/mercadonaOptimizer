@@ -1,0 +1,124 @@
+.overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.85);
+    backdrop-filter: blur(8px);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+    padding: 20px;
+}
+
+.modal {
+    background: var(--bg-main);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    width: 100%;
+    max-width: 900px;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+    display: flex;
+    flex-direction: column;
+}
+
+.header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 24px;
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    background: var(--bg-main);
+    z-index: 10;
+}
+
+.title {
+    margin: 0;
+    font-size: 1.5rem;
+    color: var(--text-main);
+    font-weight: 700;
+}
+
+.subtitle {
+    margin: 4px 0 0 0;
+    color: var(--text-soft);
+    font-size: 0.9rem;
+}
+
+.closeBtn {
+    background: transparent;
+    border: none;
+    color: var(--text-soft);
+    cursor: pointer;
+    padding: 8px;
+    border-radius: 50%;
+    transition: var(--transition);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.closeBtn:hover {
+    background: var(--bg-card-hover);
+    color: var(--text-main);
+}
+
+.grid {
+    padding: 24px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+}
+
+.card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+}
+
+.fullWidth {
+    grid-column: 1 / -1;
+}
+
+.cardTitle {
+    margin: 0 0 16px 0;
+    font-size: 1.1rem;
+    color: var(--text-main);
+    font-weight: 600;
+}
+
+.chartWrap {
+    flex: 1;
+    min-height: 250px;
+    position: relative;
+}
+
+.chartWrapLarge {
+    flex: 1;
+    min-height: 300px;
+    position: relative;
+}
+
+/* Custom Recharts overrides to ensure everything is visible in dark mode */
+:global(.recharts-text) {
+    fill: var(--text-soft);
+}
+
+:global(.recharts-legend-item-text) {
+    color: var(--text-main) !important;
+}
+
+@media (max-width: 768px) {
+    .grid {
+        grid-template-columns: 1fr;
+    }
+}

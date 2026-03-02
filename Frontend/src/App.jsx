@@ -16,11 +16,14 @@ function PublicRoute({ children }) {
   return user ? <Navigate to="/" replace /> : children;
 }
 
+import OrdersPage from './pages/OrdersPage';
+
 function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
       <Route path="/" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
+      <Route path="/pedidos" element={<ProtectedRoute><OrdersPage /></ProtectedRoute>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

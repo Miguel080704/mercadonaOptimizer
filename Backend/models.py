@@ -90,3 +90,11 @@ class DietaRequest(BaseModel):
     carbohidratos: Optional[float] = None
     grasas: Optional[float] = None
     excluir_tipos: Optional[list[str]] = None
+    secciones_fijas: Optional[dict] = None
+    solo_version: Optional[str] = None
+
+class PedidoRequest(BaseModel):
+    precio_total: float
+    version_label: str
+    macros_json: dict
+    secciones_json: dict
