@@ -327,9 +327,21 @@
     background: linear-gradient(135deg, #7c3aed, #8b5cf6);
 }
 
-.versionHeaderContent {
+.versionHeaderTop {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
     position: relative;
     z-index: 1;
+}
+
+.versionHeaderBottom {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    position: relative;
+    z-index: 1;
+    margin-top: 12px;
 }
 
 .versionLabel {
@@ -344,7 +356,6 @@
     font-size: 1.6rem;
     font-weight: 900;
     color: white;
-    margin-top: 2px;
 }
 
 .versionMeta {
@@ -352,6 +363,31 @@
     flex-wrap: wrap;
     gap: 5px;
     margin-top: 8px;
+    justify-content: flex-end;
+    max-width: 60%;
+}
+
+.headerAiBtn {
+    background: rgba(255, 255, 255, 0.15) !important;
+    border: 1px solid rgba(255, 255, 255, 0.3) !important;
+    color: white !important;
+    padding: 6px 12px !important;
+    font-size: 0.8rem !important;
+    border-radius: var(--radius-sm);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 700;
+    transition: all 0.2s ease !important;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.headerAiBtn:hover {
+    background: white !important;
+    color: var(--text-main) !important;
+    transform: translateY(-2px) !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2) !important;
 }
 
 .badge {
@@ -541,6 +577,19 @@
     border-color: var(--text-secondary);
     color: var(--text-main);
     background: var(--bg-card-hover);
+}
+
+.footerBtnAi {
+    border-color: #8557f1;
+    color: #8557f1;
+    background: rgba(133, 87, 241, 0.1);
+}
+
+.footerBtnAi:hover {
+    background: rgba(133, 87, 241, 0.2);
+    color: #a78bfa;
+    border-color: #a78bfa;
+    box-shadow: 0 0 15px rgba(133, 87, 241, 0.3);
 }
 
 .footerBtnPrimary {

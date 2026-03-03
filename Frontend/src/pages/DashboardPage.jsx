@@ -80,6 +80,7 @@ export default function DashboardPage() {
     const [pmNombre, setPmNombre] = useState('');
     const [pmApellidos, setPmApellidos] = useState('');
     const [pmPerfil, setPmPerfil] = useState('estandar');
+    const [pmGroqKey, setPmGroqKey] = useState(localStorage.getItem('groq_api_key') || '');
     const [foto, setFoto] = useState(null);
     const [initial, setInitial] = useState('');
 
@@ -87,7 +88,7 @@ export default function DashboardPage() {
     const [showCheckout, setShowCheckout] = useState(false);
     const [checkoutVersion, setCheckoutVersion] = useState(null);
     const [isCheckingOut, setIsCheckingOut] = useState(false);
-    const [regenerating, setRegenerating] = useState(null); // label of the version being regenerated
+    const [regenerating, setRegenerating] = useState(null);
     const [pmPres, setPmPres] = useState(50);
     const [pmProt, setPmProt] = useState(150);
     const [pmKcal, setPmKcal] = useState(2400);
@@ -204,11 +205,13 @@ export default function DashboardPage() {
         setPmProt(user?.proteinas_default || 150);
         setPmKcal(user?.calorias_default || 2400);
         setPmCarb(user?.carbohidratos_default || '');
+        setPmGroqKey(localStorage.getItem('groq_api_key') || '');
         setShowProfile(true);
     };
 
     const saveProfile = async () => {
         try {
+            localStorage.setItem('groq_api_key', pmGroqKey);
             await apiPut('/perfil', {
                 nombre: pmNombre || null,
                 apellidos: pmApellidos || null,
@@ -349,7 +352,8 @@ export default function DashboardPage() {
                                 headerClass={vc.headerClass}
                                 delay={idx * 0.1}
                                 onUpdate={(newSecs) => updateVersion(vc.key, newSecs)}
-                                onCheckout={(label, data) => { setCheckoutVersion({ label, data }); setShowCheckout(true); }}
+                                onCheckout={(label, dat) => { setCheckoutVersion({ label, data: dat }); setShowCheckout(true); }}
+                                onShowRecipe={(label, dat) => navigate('/menu', { state: { basketData: dat, versionLabel: label } })}
                                 onRegenerate={regenerateSection}
                                 isRegenerating={regenerating === vc.label}
                                 allResults={results}
@@ -401,6 +405,11 @@ export default function DashboardPage() {
                                     <div className={s.pmField}><label>Proteínas (g/día)</label><input className={s.pmInput} type="number" value={pmProt} onChange={e => setPmProt(e.target.value)} /></div>
                                     <div className={s.pmField}><label>Calorías (kcal/día)</label><input className={s.pmInput} type="number" value={pmKcal} onChange={e => setPmKcal(e.target.value)} /></div>
                                     <div className={s.pmField}><label>Carbohidratos (g/día)</label><input className={s.pmInput} type="number" value={pmCarb} onChange={e => setPmCarb(e.target.value)} placeholder="Opcional" /></div>
+                                </div>
+                                <div className={s.pmSectionTitle}>Inteligencia Artificial</div>
+                                <div className={s.pmField}>
+                                    <label>Groq API Key <span style={{ opacity: 0.5, fontSize: '0.7rem', fontWeight: 'normal' }}>(Llama 3, Local Storage)</span></label>
+                                    <input className={s.pmInput} type="password" value={pmGroqKey} onChange={e => setPmGroqKey(e.target.value)} placeholder="gsk_..." />
                                 </div>
                                 <button className={s.pmSave} onClick={saveProfile}>Guardar cambios</button>
                             </div>
@@ -456,7 +465,7 @@ export default function DashboardPage() {
 }
 
 /* === VERSION CARD COMPONENT === */
-function VersionCard({ versionKey, data, label, headerClass, delay, onUpdate, onCheckout, onRegenerate, isRegenerating, allResults, allVersions }) {
+function VersionCard({ versionKey, data, label, headerClass, delay, onUpdate, onCheckout, onShowRecipe, onRegenerate, isRegenerating, allResults, allVersions }) {
     const [openSections, setOpenSections] = useState({ desayuno: true, comida: true, merienda: true, cena: true });
     const [selectedProduct, setSelectedProduct] = useState(null);
     const [showSearch, setShowSearch] = useState(null);
@@ -679,15 +688,20 @@ function VersionCard({ versionKey, data, label, headerClass, delay, onUpdate, on
         <motion.article className={s.versionCard}
             initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay, duration: 0.4 }}>
             <div className={`${s.versionHeader} ${s[headerClass]}`}>
-                <div className={s.versionHeaderContent}>
+                <div className={s.versionHeaderTop}>
                     <div className={s.versionLabel}>{label}</div>
-                    <div className={s.versionPrice}>{data.precio_total}€</div>
                     <div className={s.versionMeta}>
                         <span className={s.badge}>🔥 {m.kcal} kcal</span>
                         <span className={s.badge}>💪 {m.prot}g</span>
                         <span className={s.badge}>🍞 {m.carb}g</span>
                         <span className={s.badge}>🧈 {m.gras}g</span>
                     </div>
+                </div>
+                <div className={s.versionHeaderBottom}>
+                    <div className={s.versionPrice}>{data.precio_total}€</div>
+                    <button className={`${s.footerBtn} ${s.footerBtnAi} ${s.headerAiBtn}`} onClick={() => onShowRecipe(label, data)} title="Generar Menú con Groq AI (Llama)">
+                        <Sparkles size={14} /> ✨ Generar Plan Semanal IA
+                    </button>
                 </div>
             </div>
             <div className={s.versionBody}>

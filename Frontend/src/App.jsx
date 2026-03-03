@@ -17,6 +17,7 @@ function PublicRoute({ children }) {
 }
 
 import OrdersPage from './pages/OrdersPage';
+import MenuPage from './pages/MenuPage';
 
 function AppRoutes() {
   return (
@@ -24,6 +25,7 @@ function AppRoutes() {
       <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
       <Route path="/" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
       <Route path="/pedidos" element={<ProtectedRoute><OrdersPage /></ProtectedRoute>} />
+      <Route path="/menu" element={<ProtectedRoute><MenuPage /></ProtectedRoute>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
