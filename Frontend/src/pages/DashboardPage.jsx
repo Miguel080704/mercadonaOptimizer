@@ -81,8 +81,6 @@ export default function DashboardPage() {
     const [pmApellidos, setPmApellidos] = useState('');
     const [pmPerfil, setPmPerfil] = useState('estandar');
     const [pmGroqKey, setPmGroqKey] = useState(localStorage.getItem('groq_api_key') || '');
-    const [foto, setFoto] = useState(null);
-    const [initial, setInitial] = useState('');
 
     // Checkout State
     const [showCheckout, setShowCheckout] = useState(false);
@@ -380,7 +378,7 @@ export default function DashboardPage() {
                             <div className={s.pmBody}>
                                 <div className={s.avatarUpload}>
                                     <div className={s.avatarPreview} onClick={() => fotoRef.current?.click()}>
-                                        {foto ? <img src={foto} alt="" /> : <span>{initial}</span>}
+                                        {userFoto ? <img src={userFoto} alt="" /> : <span>{userInitial}</span>}
                                     </div>
                                     <span className={s.avatarHint}>Haz clic para cambiar foto</span>
                                     <input type="file" ref={fotoRef} accept="image/*" style={{ display: 'none' }} onChange={uploadFoto} />
